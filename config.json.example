@@ -1,0 +1,6 @@
+{
+  "spreadsheet_id": "your-google-sheet-id-here",
+  "range": "Sheet1!A:Z",
+  "yahoo_username": "your-email@yahoo.com",
+  "yahoo_app_password": "your-yahoo-app-password"
+}
