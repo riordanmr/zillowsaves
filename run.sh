@@ -19,8 +19,8 @@ if [ ! -f "config.json" ]; then
 fi
 
 # Check if credentials.json exists
-if [ ! -f "credentials.json" ]; then
-    echo "❌ credentials.json not found"
+if [ ! -f "google-credentials.json" ]; then
+    echo "❌ google-credentials.json not found"
     echo "Please follow the setup instructions in README.md to:"
     echo "1. Create a Google Cloud project"
     echo "2. Enable Google Sheets and Gmail APIs"

@@ -35,3 +35,8 @@ config.json
 # Editor/IDE
 # .idea/
 # .vscode/
+
+*.zip
+
+# Executables
+zillowsaves

@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io/ioutil"
-	"strings"
 	"time"
 
 	"github.com/emersion/go-imap"
@@ -14,7 +13,7 @@ import (
 // connectToYahooIMAPV1 connects to Yahoo Mail via IMAP v1 library
 func connectToYahooIMAP(username, password, subject, since string) ([]*EmailMessage, error) {
 	// Parse the filter date
-	filterTime, err := time.Parse("2006-01-02", since)
+	timeSince, err := time.Parse("2006-01-02", since)
 	if err != nil {
 		return nil, fmt.Errorf("invalid date format: %v", err)
 	}
@@ -39,7 +38,11 @@ func connectToYahooIMAP(username, password, subject, since string) ([]*EmailMess
 
 	// Search for emails since the date
 	criteria := imap.NewSearchCriteria()
-	criteria.Since = filterTime
+	criteria.Since = timeSince
+	// Blackhawk was listed ca. 2025-05-22.
+	// For testing, we'll stop the search only a few days later.
+	criteria.Before, err = time.Parse("2006-01-02", "2025-05-29")
+	criteria.Header.Add("Subject", subject) // Add subject search
 
 	uids, err := c.Search(criteria)
 	if err != nil {
@@ -50,7 +53,7 @@ func connectToYahooIMAP(username, password, subject, since string) ([]*EmailMess
 		return []*EmailMessage{}, nil
 	}
 
-	fmt.Printf("Found %d emails since %s\n", len(uids), since)
+	fmt.Printf("Found %d emails with matching subject since %s\n", len(uids), since)
 
 	// Fetch messages
 	seqset := new(imap.SeqSet)
@@ -65,11 +68,6 @@ func connectToYahooIMAP(username, password, subject, since string) ([]*EmailMess
 	var emailMessages []*EmailMessage
 	for msg := range messages {
 		if msg.Envelope == nil {
-			continue
-		}
-
-		// Check if subject contains our target text
-		if !strings.Contains(strings.ToLower(msg.Envelope.Subject), strings.ToLower(subject)) {
 			continue
 		}
 

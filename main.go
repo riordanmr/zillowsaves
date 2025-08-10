@@ -22,7 +22,7 @@ import (
 const (
 	dateFormat   = "2006-01-02"
 	emailSubject = "Your Daily Listing Report: 9121 Blackhawk Rd"
-	filterDate   = "2025-07-15"
+	filterDate   = "2025-05-21"
 )
 
 type Config struct {
@@ -49,9 +49,10 @@ func loadConfig(filename string) (*Config, error) {
 }
 
 func getGoogleClient(ctx context.Context) (*http.Client, error) {
-	b, err := ioutil.ReadFile("credentials.json")
+	googleCredsFilename := "google-credentials.json"
+	b, err := ioutil.ReadFile(googleCredsFilename)
 	if err != nil {
-		return nil, fmt.Errorf("unable to read credentials.json: %v", err)
+		return nil, fmt.Errorf("unable to read %s: %v", googleCredsFilename, err)
 	}
 
 	config, err := google.ConfigFromJSON(b, sheets.SpreadsheetsScope)
@@ -59,7 +60,7 @@ func getGoogleClient(ctx context.Context) (*http.Client, error) {
 		return nil, fmt.Errorf("unable to parse credentials: %v", err)
 	}
 
-	tokFile := "token.json"
+	tokFile := "google-token.json"
 	tok, err := tokenFromFile(tokFile)
 	if err != nil {
 		tok = getTokenFromWeb(config)
