@@ -10,7 +10,7 @@ Updates a Google Sheet with the number of Zillow Saves from emails received on a
 2. Create a new project or select an existing one
 3. Enable the Google Sheets API
 4. Create credentials (OAuth 2.0 Client ID)
-5. Download the credentials file and save it as `credentials.json` in this directory
+5. Download the credentials file and save it as `google-credentials.json` in this directory
 
 ### 2. Yahoo Mail App Password
 
@@ -59,7 +59,7 @@ The program searches for the save count by matching against several patterns in 
 
 ## Security
 
-- Keep your `credentials.json`, `token.json`, and `config.json` files secure
+- Keep your `google-credentials.json`, `google-token.json`, and `config.json` files secure
 - Never commit them to version control
 - Use Yahoo App Passwords, never your regular password
 - The program requests minimal scopes (Google Sheets read-only)
