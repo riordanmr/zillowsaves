@@ -41,7 +41,7 @@ func connectToYahooIMAP(username, password, subject, since string) ([]*EmailMess
 	criteria.Since = timeSince
 	// Blackhawk was listed ca. 2025-05-22.
 	// For testing, we'll stop the search only a few days later.
-	criteria.Before, err = time.Parse("2006-01-02", "2025-05-29")
+	//criteria.Before, err = time.Parse("2006-01-02", "2025-06-20")
 	criteria.Header.Add("Subject", subject) // Add subject search
 
 	uids, err := c.Search(criteria)
