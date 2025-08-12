@@ -1,3 +1,4 @@
+// Access Yahoo Mail via IMAP.
 package main
 
 import (

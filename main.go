@@ -1,3 +1,17 @@
+// zillowsaves is a Go program that accumulates Zillow saves data.
+// (A "Zillow save" is an instance of a Zillow user bookmarking a given property.)
+//
+// This program:
+//   - Uses the Google Sheets API to connect to a Google Sheet and learn the
+//     last date for which we have recorded saves data.
+//   - Connects to Yahoo Mail via IMAP and retrieves Zillow emails subsequent
+//     to that date, extracting the daily saves count from each.
+//   - Appends the new data to the Google Sheet, recording the date and saves count
+//     from each email.
+//
+// Mark Riordan, August 2025
+
+// In the code below, I place function definitions before their references.
 package main
 
 import (
@@ -41,6 +55,7 @@ type EmailMessage struct {
 	ZillowSaves int
 }
 
+// Load the application configuration from a JSON file.
 func loadConfig(filename string) (*Config, error) {
 	data, err := ioutil.ReadFile(filename)
 	if err != nil {
@@ -50,6 +65,46 @@ func loadConfig(filename string) (*Config, error) {
 	return &config, json.Unmarshal(data, &config)
 }
 
+// Obtain a Google OAuth2 token from the web, prompting the user to visit a URL.
+func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
+	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
+	fmt.Printf("Go to this URL and enter the authorization code: \n%v\n", authURL)
+
+	var authCode string
+	if _, err := fmt.Scan(&authCode); err != nil {
+		log.Fatalf("Unable to read authorization code: %v", err)
+	}
+
+	tok, err := config.Exchange(context.TODO(), authCode)
+	if err != nil {
+		log.Fatalf("Unable to retrieve token: %v", err)
+	}
+	return tok
+}
+
+// Obtain a Google OAuth2 token from a local file.
+func tokenFromFile(file string) (*oauth2.Token, error) {
+	f, err := os.Open(file)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	tok := &oauth2.Token{}
+	return tok, json.NewDecoder(f).Decode(tok)
+}
+
+// Save a Google OAuth2 token to a local file.
+func saveToken(path string, token *oauth2.Token) {
+	fmt.Printf("Saving credential file to: %s\n", path)
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		log.Fatalf("Unable to cache token: %v", err)
+	}
+	defer f.Close()
+	json.NewEncoder(f).Encode(token)
+}
+
+// Return a Google HTTP client with credentials.
 func getGoogleClient(ctx context.Context) (*http.Client, error) {
 	googleCredsFilename := "google-credentials.json"
 	b, err := ioutil.ReadFile(googleCredsFilename)
@@ -71,42 +126,7 @@ func getGoogleClient(ctx context.Context) (*http.Client, error) {
 	return config.Client(ctx, tok), nil
 }
 
-func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
-	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
-	fmt.Printf("Go to this URL and enter the authorization code: \n%v\n", authURL)
-
-	var authCode string
-	if _, err := fmt.Scan(&authCode); err != nil {
-		log.Fatalf("Unable to read authorization code: %v", err)
-	}
-
-	tok, err := config.Exchange(context.TODO(), authCode)
-	if err != nil {
-		log.Fatalf("Unable to retrieve token: %v", err)
-	}
-	return tok
-}
-
-func tokenFromFile(file string) (*oauth2.Token, error) {
-	f, err := os.Open(file)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	tok := &oauth2.Token{}
-	return tok, json.NewDecoder(f).Decode(tok)
-}
-
-func saveToken(path string, token *oauth2.Token) {
-	fmt.Printf("Saving credential file to: %s\n", path)
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		log.Fatalf("Unable to cache token: %v", err)
-	}
-	defer f.Close()
-	json.NewEncoder(f).Encode(token)
-}
-
+// Return all rows from a Google Sheet.
 func getSheetData(srv *sheets.Service, spreadsheetID, readRange string) ([][]interface{}, error) {
 	resp, err := srv.Spreadsheets.Values.Get(spreadsheetID, readRange).Do()
 	if err != nil {
@@ -116,6 +136,7 @@ func getSheetData(srv *sheets.Service, spreadsheetID, readRange string) ([][]int
 	return resp.Values, nil
 }
 
+// Append Zillow saves data (date and number of saves on that date) to a Google Sheet.
 func appendToSheet(srv *sheets.Service, spreadsheetID, sheetRange string, emails []*EmailMessage) error {
 	// Prepare the data to append
 	var values [][]interface{}
@@ -152,6 +173,7 @@ func appendToSheet(srv *sheets.Service, spreadsheetID, sheetRange string, emails
 	return nil
 }
 
+// Given an email body, extract the Zillow saves count.
 func extractZillowSavesCount(content string) (int, error) {
 	patterns := []string{
 		`(\d+)\s+saves?`,
@@ -182,17 +204,26 @@ func getYahooEmails(username, appPassword, subject, since string) ([]*EmailMessa
 	return connectToYahooIMAP(username, appPassword, subject, since)
 }
 
+// Process the accumulated emails, extracting the Zillow saves counts and
+// appending them to the Google Sheet.
 func processData(srv *sheets.Service, config *Config, rows [][]interface{}, emails []*EmailMessage) {
-	bOK := true
+	// Some debug output.
 	fmt.Println("\n=== Google Sheets Data ===")
-	for i, row := range rows {
-		fmt.Printf("Row %d: %v\n", i+1, row)
-		if i >= 4 {
-			fmt.Printf("... and %d more rows\n", len(rows)-5)
-			break
+	if len(rows) <= 4 {
+		// If 4 or fewer rows, print all
+		for i, row := range rows {
+			fmt.Printf("Row %d: %v\n", i+1, row)
+		}
+	} else {
+		fmt.Printf("Retrieved %d rows from Google Sheet; will show last 4:\n", len(rows))
+
+		// Print last 4 rows
+		for i := len(rows) - 4; i < len(rows); i++ {
+			fmt.Printf("Row %d: %v\n", i+1, rows[i])
 		}
 	}
 
+	bOK := true
 	fmt.Println("\n=== Yahoo Mail Data ===")
 	for i, email := range emails {
 		fmt.Printf("Email %d:\n", i+1)
@@ -218,10 +249,11 @@ func processData(srv *sheets.Service, config *Config, rows [][]interface{}, emai
 	}
 }
 
+// Main function to execute the Zillow saves processing.
 func doZillow(config *Config) error {
 	googleCtx := context.Background()
 
-	// Google Sheets
+	// Connect to Google Sheets and download the data.
 	fmt.Println("Accessing Google Sheets...")
 	httpClient, err := getGoogleClient(googleCtx)
 	if err != nil {
@@ -238,7 +270,7 @@ func doZillow(config *Config) error {
 	}
 	fmt.Printf("Retrieved %d rows from Google Sheet\n", len(rows))
 
-	// Determine filterDate from last row in sheet
+	// Determine filterDate from last row in sheet.
 	var dynamicFilterDate string
 	if len(rows) > 0 {
 		lastRow := rows[len(rows)-1]
@@ -279,7 +311,7 @@ func doZillow(config *Config) error {
 		dynamicFilterDate = fallbackFilterDate
 	}
 
-	// Yahoo Mail via IMAP
+	// AccessYahoo Mail via IMAP
 	fmt.Println("Accessing Yahoo Mail via IMAP...")
 	emails, err := getYahooEmails(config.YahooUsername, config.YahooAppPassword, emailSubject, dynamicFilterDate)
 	if err != nil {
@@ -294,7 +326,7 @@ func doZillow(config *Config) error {
 	fmt.Println("Sorted emails by date (oldest first)")
 
 	// Process results
-	fmt.Println("\nProcessing results...")
+	fmt.Println("Processing results...")
 	processData(srv, config, rows, emails)
 	return nil
 }
@@ -322,5 +354,4 @@ func main() {
 	if err := doZillow(config); err != nil {
 		log.Fatalf("Zillow processing failed: %v", err)
 	}
-
 }
