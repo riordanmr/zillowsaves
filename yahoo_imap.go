@@ -72,6 +72,14 @@ func connectToYahooIMAP(username, password, subject, since string) ([]*EmailMess
 			continue
 		}
 
+		// For some reason, Yahoo Mail can return emails with a date prior to the requested date - even
+		// when you take UTC into account. So account for that here.
+		if msg.Envelope.Date.Before(timeSince) {
+			fmt.Printf("Email with stamp %s is older than filter date %s; skipping.\n",
+				msg.Envelope.Date.Format("2006-01-02"), since)
+			continue
+		}
+
 		email := &EmailMessage{
 			Subject: msg.Envelope.Subject,
 			Date:    msg.Envelope.Date,
