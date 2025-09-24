@@ -28,16 +28,16 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"
 )
 
 const (
-	dateFormat         = "2006-01-02"
-	emailSubject       = "Your Daily Listing Report: 9121 Blackhawk Rd"
-	fallbackFilterDate = "2025-05-21"
+	dateFormat            = "2006-01-02"
+	emailSubject          = "Your Daily Listing Report: 9121 Blackhawk Rd"
+	fallbackFilterDate    = "2025-05-21"
+	serviceAccountKeyFile = "google-service-account-key.json"
 )
 
 type Config struct {
@@ -65,65 +65,26 @@ func loadConfig(filename string) (*Config, error) {
 	return &config, json.Unmarshal(data, &config)
 }
 
-// Obtain a Google OAuth2 token from the web, prompting the user to visit a URL.
-func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
-	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
-	fmt.Printf("Go to this URL and enter the authorization code: \n%v\n", authURL)
-
-	var authCode string
-	if _, err := fmt.Scan(&authCode); err != nil {
-		log.Fatalf("Unable to read authorization code: %v", err)
-	}
-
-	tok, err := config.Exchange(context.TODO(), authCode)
-	if err != nil {
-		log.Fatalf("Unable to retrieve token: %v", err)
-	}
-	return tok
-}
-
-// Obtain a Google OAuth2 token from a local file.
-func tokenFromFile(file string) (*oauth2.Token, error) {
-	f, err := os.Open(file)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	tok := &oauth2.Token{}
-	return tok, json.NewDecoder(f).Decode(tok)
-}
-
-// Save a Google OAuth2 token to a local file.
-func saveToken(path string, token *oauth2.Token) {
-	fmt.Printf("Saving credential file to: %s\n", path)
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		log.Fatalf("Unable to cache token: %v", err)
-	}
-	defer f.Close()
-	json.NewEncoder(f).Encode(token)
-}
-
-// Return a Google HTTP client with credentials.
+// Return a Google HTTP client with service account credentials.
 func getGoogleClient(ctx context.Context) (*http.Client, error) {
-	googleCredsFilename := "google-credentials.json"
-	b, err := ioutil.ReadFile(googleCredsFilename)
-	if err != nil {
-		return nil, fmt.Errorf("unable to read %s: %v", googleCredsFilename, err)
+	// Check if service account file exists
+	if _, err := os.Stat(serviceAccountKeyFile); os.IsNotExist(err) {
+		return nil, fmt.Errorf("service account file %s not found. Please download it from Google Cloud Console", serviceAccountKeyFile)
 	}
 
-	config, err := google.ConfigFromJSON(b, sheets.SpreadsheetsScope)
+	b, err := ioutil.ReadFile(serviceAccountKeyFile)
 	if err != nil {
-		return nil, fmt.Errorf("unable to parse credentials: %v", err)
+		return nil, fmt.Errorf("unable to read service account file %s: %v", serviceAccountKeyFile, err)
 	}
 
-	tokFile := "google-token.json"
-	tok, err := tokenFromFile(tokFile)
+	// Use JWTConfigFromJSON for service account authentication (no manual tokens!)
+	config, err := google.JWTConfigFromJSON(b, sheets.SpreadsheetsScope)
 	if err != nil {
-		tok = getTokenFromWeb(config)
-		saveToken(tokFile, tok)
+		return nil, fmt.Errorf("unable to parse service account credentials: %v", err)
 	}
-	return config.Client(ctx, tok), nil
+
+	// This creates a client that automatically handles token refresh
+	return config.Client(ctx), nil
 }
 
 // Return all rows from a Google Sheet.
@@ -257,7 +218,7 @@ func doZillow(config *Config) error {
 	fmt.Println("Accessing Google Sheets...")
 	httpClient, err := getGoogleClient(googleCtx)
 	if err != nil {
-		log.Fatalf("Unable to create Google client: %v", err)
+		return fmt.Errorf("Unable to create Google client: %v", err)
 	}
 	srv, err := sheets.NewService(googleCtx, option.WithHTTPClient(httpClient))
 	if err != nil {
@@ -266,7 +227,7 @@ func doZillow(config *Config) error {
 
 	rows, err := getSheetData(srv, config.SpreadsheetID, config.Range)
 	if err != nil {
-		log.Fatalf("Failed to get sheet data: %v", err)
+		return fmt.Errorf("Failed to get sheet data: %v", err)
 	}
 	fmt.Printf("Retrieved %d rows from Google Sheet\n", len(rows))
 
@@ -315,7 +276,7 @@ func doZillow(config *Config) error {
 	fmt.Println("Accessing Yahoo Mail via IMAP...")
 	emails, err := getYahooEmails(config.YahooUsername, config.YahooAppPassword, emailSubject, dynamicFilterDate)
 	if err != nil {
-		log.Fatalf("Failed to get Yahoo emails: %v", err)
+		return fmt.Errorf("Failed to get Yahoo emails: %v", err)
 	}
 	fmt.Printf("Found %d emails since %s\n", len(emails), dynamicFilterDate)
 
@@ -332,6 +293,23 @@ func doZillow(config *Config) error {
 }
 
 func main() {
+	// Print current working directory for debugging
+	if cwd, err := os.Getwd(); err == nil {
+		fmt.Printf("Current working directory: %s\n", cwd)
+	} else {
+		fmt.Printf("Warning: Could not get current working directory: %v\n", err)
+	}
+
+	// Check for service account file early
+	if _, err := os.Stat(serviceAccountKeyFile); os.IsNotExist(err) {
+		fmt.Printf("Error: %s not found\n", serviceAccountKeyFile)
+		fmt.Println("\nSetup required:")
+		fmt.Printf("1. Download %s from Google Cloud Console\n", serviceAccountKeyFile)
+		fmt.Println("2. Share your Google Sheet with the service account email")
+		fmt.Println("3. Enable Google Sheets API in Cloud Console")
+		os.Exit(1)
+	}
+
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: zillowsaves <config.json>")
 		fmt.Println("Example config.json:")
